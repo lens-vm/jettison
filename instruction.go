@@ -89,9 +89,9 @@ func newInstruction(t reflect.Type, canAddr, quoted bool) instruction {
 	// be interpreted as a basic type. Also, the time.Time
 	// type implements the TextMarshaler interface, but we
 	// want to use a special instruction instead.
-	if ins := newGoTypeInstr(t); ins != nil {
-		return ins
-	}
+	// if ins := newGoTypeInstr(t); ins != nil {
+	// 	return ins
+	// }
 	if ins := newBasicTypeInstr(t, quoted); ins != nil {
 		return ins
 	}

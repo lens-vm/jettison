@@ -102,6 +102,13 @@ func encodeNumber(p unsafe.Pointer, dst []byte, opts encOpts) ([]byte, error) {
 // p to dst based on the format configured in opts.
 func encodeTime(p unsafe.Pointer, dst []byte, opts encOpts) ([]byte, error) {
 	t := *(*time.Time)(p)
+	loc := time.FixedZone("UTC", 0)
+	// if loc == time.UTC {
+	// 	panic("win2")
+	// } else {
+	// 	fmt.Println("stuff")
+	// }
+	t = t.In(loc)
 	y := t.Year()
 
 	if y < 0 || y >= 10000 {
