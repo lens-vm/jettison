@@ -117,10 +117,7 @@ func encodeTime(p unsafe.Pointer, dst []byte, opts encOpts) ([]byte, error) {
 	case time.RFC3339Nano:
 		return appendRFC3339Time(t, dst, true), nil
 	default:
-		dst = append(dst, '"')
-		dst = t.AppendFormat(dst, opts.timeLayout)
-		dst = append(dst, '"')
-		return dst, nil
+		return nil, errors.New("Unsupported time format")
 	}
 }
 
