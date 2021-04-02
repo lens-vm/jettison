@@ -1,20 +1,17 @@
 package jettison
 
 import (
-	"encoding"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"reflect"
-	"runtime"
-	"sort"
 	"strconv"
-	"sync"
 	"time"
 	"unicode/utf8"
 	"unsafe"
+
+	"github.com/benbjohnson/immutable"
 )
 
 const hex = "0123456789abcdef"
@@ -90,16 +87,16 @@ func encodeNumber(p unsafe.Pointer, dst []byte, opts encOpts) ([]byte, error) {
 	return append(dst, num...), nil
 }
 
-func encodeRawMessage(p unsafe.Pointer, dst []byte, opts encOpts) ([]byte, error) {
-	v := *(*json.RawMessage)(p)
-	if v == nil {
-		return append(dst, "null"...), nil
-	}
-	if opts.flags.has(noCompact) {
-		return append(dst, v...), nil
-	}
-	return appendCompactJSON(dst, v, !opts.flags.has(noHTMLEscaping))
-}
+// func encodeRawMessage(p unsafe.Pointer, dst []byte, opts encOpts) ([]byte, error) {
+// 	v := *(*json.RawMessage)(p)
+// 	if v == nil {
+// 		return append(dst, "null"...), nil
+// 	}
+// 	if opts.flags.has(noCompact) {
+// 		return append(dst, v...), nil
+// 	}
+// 	return appendCompactJSON(dst, v, !opts.flags.has(noHTMLEscaping))
+// }
 
 // encodeTime appends the time.Time value pointed by
 // p to dst based on the format configured in opts.
@@ -188,68 +185,68 @@ func encodePointer(p unsafe.Pointer, dst []byte, opts encOpts, ins instruction) 
 	return append(dst, "null"...), nil
 }
 
-func encodeStruct(
-	p unsafe.Pointer, dst []byte, opts encOpts, flds []field,
-) ([]byte, error) {
-	var (
-		nxt = byte('{')
-		key []byte // key of the field
-	)
-	noHTMLEscape := opts.flags.has(noHTMLEscaping)
+// func encodeStruct(
+// 	p unsafe.Pointer, dst []byte, opts encOpts, flds []field,
+// ) ([]byte, error) {
+// 	var (
+// 		nxt = byte('{')
+// 		key []byte // key of the field
+// 	)
+// 	noHTMLEscape := opts.flags.has(noHTMLEscaping)
 
-fieldLoop:
-	for i := 0; i < len(flds); i++ {
-		f := &flds[i] // get pointer to prevent copy
-		if opts.isDeniedField(f.name) {
-			continue
-		}
-		v := p
+// fieldLoop:
+// 	for i := 0; i < len(flds); i++ {
+// 		f := &flds[i] // get pointer to prevent copy
+// 		if opts.isDeniedField(f.name) {
+// 			continue
+// 		}
+// 		v := p
 
-		// Find the nested struct field by following
-		// the offset sequence, indirecting encountered
-		// pointers as needed.
-		for i := 0; i < len(f.embedSeq); i++ {
-			s := &f.embedSeq[i]
-			v = unsafe.Pointer(uintptr(v) + s.offset)
-			if s.indir {
-				if v = *(*unsafe.Pointer)(v); v == nil {
-					// When we encounter a nil pointer
-					// in the chain, we have no choice
-					// but to ignore the field.
-					continue fieldLoop
-				}
-			}
-		}
-		// Ignore the field if it is a nil pointer and has
-		// the omitnil option in his tag.
-		if f.omitNil && *(*unsafe.Pointer)(v) == nil {
-			continue
-		}
-		// Ignore the field if it represents the zero-value
-		// of its type and has the omitempty option in his tag.
-		// Empty func is non-nil only if the field has the
-		// omitempty option in its tag.
-		if f.omitEmpty && f.empty(v) {
-			continue
-		}
-		key = f.keyEscHTML
-		if noHTMLEscape {
-			key = f.keyNonEsc
-		}
-		dst = append(dst, nxt)
-		nxt = ','
-		dst = append(dst, key...)
+// 		// Find the nested struct field by following
+// 		// the offset sequence, indirecting encountered
+// 		// pointers as needed.
+// 		for i := 0; i < len(f.embedSeq); i++ {
+// 			s := &f.embedSeq[i]
+// 			v = unsafe.Pointer(uintptr(v) + s.offset)
+// 			if s.indir {
+// 				if v = *(*unsafe.Pointer)(v); v == nil {
+// 					// When we encounter a nil pointer
+// 					// in the chain, we have no choice
+// 					// but to ignore the field.
+// 					continue fieldLoop
+// 				}
+// 			}
+// 		}
+// 		// Ignore the field if it is a nil pointer and has
+// 		// the omitnil option in his tag.
+// 		if f.omitNil && *(*unsafe.Pointer)(v) == nil {
+// 			continue
+// 		}
+// 		// Ignore the field if it represents the zero-value
+// 		// of its type and has the omitempty option in his tag.
+// 		// Empty func is non-nil only if the field has the
+// 		// omitempty option in its tag.
+// 		if f.omitEmpty && f.empty(v) {
+// 			continue
+// 		}
+// 		key = f.keyEscHTML
+// 		if noHTMLEscape {
+// 			key = f.keyNonEsc
+// 		}
+// 		dst = append(dst, nxt)
+// 		nxt = ','
+// 		dst = append(dst, key...)
 
-		var err error
-		if dst, err = f.instr(v, dst, opts); err != nil {
-			return dst, err
-		}
-	}
-	if nxt == '{' {
-		return append(dst, "{}"...), nil
-	}
-	return append(dst, '}'), nil
-}
+// 		var err error
+// 		if dst, err = f.instr(v, dst, opts); err != nil {
+// 			return dst, err
+// 		}
+// 	}
+// 	if nxt == '{' {
+// 		return append(dst, "{}"...), nil
+// 	}
+// 	return append(dst, '}'), nil
+// }
 
 func encodeSlice(
 	p unsafe.Pointer, dst []byte, opts encOpts, ins instruction, es uintptr,
@@ -264,7 +261,7 @@ func encodeSlice(
 	if shdr.Len == 0 {
 		return append(dst, "[]"...), nil
 	}
-	return encodeArray(shdr.Data, dst, opts, ins, es, shdr.Len, false)
+	return encodeArray(unsafe.Pointer(shdr.Data), dst, opts, ins, es, int(shdr.Len), false)
 }
 
 // encodeByteSlice appends a byte slice to dst as
@@ -328,8 +325,8 @@ func encodeByteArrayAsString(p unsafe.Pointer, dst []byte, opts encOpts, len int
 	// see golang.org/ref/spec#Size_and_alignment_guarantees
 	b := *(*[]byte)(unsafe.Pointer(&sliceHeader{
 		Data: p,
-		Len:  len,
-		Cap:  len,
+		Len:  (len),
+		Cap:  (len),
 	}))
 	dst = append(dst, '"')
 	dst = appendEscapedBytes(dst, b, opts)
@@ -341,29 +338,34 @@ func encodeByteArrayAsString(p unsafe.Pointer, dst []byte, opts encOpts, len int
 func encodeMap(
 	p unsafe.Pointer, dst []byte, opts encOpts, t reflect.Type, ki, vi instruction,
 ) ([]byte, error) {
-	m := *(*unsafe.Pointer)(p)
+	// m := (*immutable.Map)(p)
+	mIface := packEface(p, reflect.TypeOf(&immutable.Map{}), true)
+	m, ok := mIface.(*immutable.Map)
+	if !ok {
+		return nil, errors.New("map failed conversion")
+	}
 	if m == nil {
 		if opts.flags.has(nilMapEmpty) {
 			return append(dst, "{}"...), nil
 		}
 		return append(dst, "null"...), nil
 	}
-	ml := maplen(m)
+	ml := m.Len()
 	if ml == 0 {
 		return append(dst, "{}"...), nil
 	}
 	dst = append(dst, '{')
 
-	rt := unpackEface(t).word
-	it := newHiter(rt, m)
+	// rt := unpackEface(t).word
+	// it := newHiter(rt, m)
+	it := m.Iterator()
 
 	var err error
-	if opts.flags.has(unsortedMap) {
-		dst, err = encodeUnsortedMap(it, dst, opts, ki, vi)
-	} else {
-		dst, err = encodeSortedMap(it, dst, opts, ki, vi, ml)
-	}
-	hiterPool.Put(it)
+	// if opts.flags.has(unsortedMap) {
+	// 	dst, err = encodeUnsortedMap(it, dst, opts, ki, vi)
+	// }
+	dst, err = encodeUnsortedMap(it, dst, opts, ki, vi)
+	// hiterPool.Put(it)
 
 	if err != nil {
 		return dst, err
@@ -375,24 +377,25 @@ func encodeMap(
 // pointed by p as comma-separated k/v pairs to dst,
 // in unspecified order.
 func encodeUnsortedMap(
-	it *hiter, dst []byte, opts encOpts, ki, vi instruction,
+	it *immutable.MapIterator, dst []byte, opts encOpts, ki, vi instruction,
 ) ([]byte, error) {
 	var (
 		n   int
 		err error
 	)
-	for ; it.key != nil; mapiternext(it) {
+	for !it.Done() {
+		key, val := it.Next()
 		if n != 0 {
 			dst = append(dst, ',')
 		}
 		// Encode entry's key.
-		if dst, err = ki(it.key, dst, opts); err != nil {
+		if dst, err = encodeInterface(unsafe.Pointer(&key), dst, opts); err != nil {
 			return dst, err
 		}
 		dst = append(dst, ':')
 
 		// Encode entry's value.
-		if dst, err = vi(it.val, dst, opts); err != nil {
+		if dst, err = encodeInterface(unsafe.Pointer(&val), dst, opts); err != nil {
 			return dst, err
 		}
 		n++
@@ -403,322 +406,322 @@ func encodeUnsortedMap(
 // encodeUnsortedMap appends the elements of the map
 // pointed by p as comma-separated k/v pairs to dst,
 // sorted by key in lexicographical order.
-func encodeSortedMap(
-	it *hiter, dst []byte, opts encOpts, ki, vi instruction, ml int,
-) ([]byte, error) {
-	var (
-		off int
-		err error
-		buf = cachedBuffer()
-		mel *mapElems
-	)
-	if v := mapElemsPool.Get(); v != nil {
-		mel = v.(*mapElems)
-	} else {
-		mel = &mapElems{s: make([]kv, 0, ml)}
-	}
-	for ; it.key != nil; mapiternext(it) {
-		kv := kv{}
+// func encodeSortedMap(
+// 	it *hiter, dst []byte, opts encOpts, ki, vi instruction, ml int,
+// ) ([]byte, error) {
+// 	var (
+// 		off int
+// 		err error
+// 		buf = cachedBuffer()
+// 		mel *mapElems
+// 	)
+// 	if v := mapElemsPool.Get(); v != nil {
+// 		mel = v.(*mapElems)
+// 	} else {
+// 		mel = &mapElems{s: make([]kv, 0, ml)}
+// 	}
+// 	for ; it.key != nil; mapiternext(it) {
+// 		kv := kv{}
 
-		// Encode the key and store the buffer
-		// portion to use during sort.
-		if buf.B, err = ki(it.key, buf.B, opts); err != nil {
-			break
-		}
-		// Omit quotes of keys.
-		kv.key = buf.B[off+1 : len(buf.B)-1]
+// 		// Encode the key and store the buffer
+// 		// portion to use during sort.
+// 		if buf.B, err = ki(it.key, buf.B, opts); err != nil {
+// 			break
+// 		}
+// 		// Omit quotes of keys.
+// 		kv.key = buf.B[off+1 : len(buf.B)-1]
 
-		// Add separator after key.
-		buf.B = append(buf.B, ':')
+// 		// Add separator after key.
+// 		buf.B = append(buf.B, ':')
 
-		// Encode the value and store the buffer
-		// portion corresponding to the semicolon
-		// delimited key/value pair.
-		if buf.B, err = vi(it.val, buf.B, opts); err != nil {
-			break
-		}
-		kv.keyval = buf.B[off:len(buf.B)]
-		mel.s = append(mel.s, kv)
-		off = len(buf.B)
-	}
-	if err == nil {
-		// Sort map entries by key in
-		// lexicographical order.
-		sort.Sort(mel)
+// 		// Encode the value and store the buffer
+// 		// portion corresponding to the semicolon
+// 		// delimited key/value pair.
+// 		if buf.B, err = vi(it.val, buf.B, opts); err != nil {
+// 			break
+// 		}
+// 		kv.keyval = buf.B[off:len(buf.B)]
+// 		mel.s = append(mel.s, kv)
+// 		off = len(buf.B)
+// 	}
+// 	if err == nil {
+// 		// Sort map entries by key in
+// 		// lexicographical order.
+// 		sort.Sort(mel)
 
-		// Append sorted comma-delimited k/v
-		// pairs to the given buffer.
-		for i, kv := range mel.s {
-			if i != 0 {
-				dst = append(dst, ',')
-			}
-			dst = append(dst, kv.keyval...)
-		}
-	}
-	// The map elements must be released before
-	// the buffer, because each k/v pair holds
-	// two sublices that points to the buffer's
-	// backing array.
-	releaseMapElems(mel)
-	bufferPool.Put(buf)
+// 		// Append sorted comma-delimited k/v
+// 		// pairs to the given buffer.
+// 		for i, kv := range mel.s {
+// 			if i != 0 {
+// 				dst = append(dst, ',')
+// 			}
+// 			dst = append(dst, kv.keyval...)
+// 		}
+// 	}
+// 	// The map elements must be released before
+// 	// the buffer, because each k/v pair holds
+// 	// two sublices that points to the buffer's
+// 	// backing array.
+// 	releaseMapElems(mel)
+// 	bufferPool.Put(buf)
 
-	return dst, err
-}
+// 	return dst, err
+// }
 
-// encodeSyncMap appends the elements of a sync.Map pointed
-// to by p to dst and returns the extended buffer.
-// This function replicates the behavior of encoding Go maps,
-// by returning an error for keys that are not of type string
-// or int, or that does not implement encoding.TextMarshaler.
-func encodeSyncMap(p unsafe.Pointer, dst []byte, opts encOpts) ([]byte, error) {
-	sm := (*sync.Map)(p)
-	dst = append(dst, '{')
+// // encodeSyncMap appends the elements of a sync.Map pointed
+// // to by p to dst and returns the extended buffer.
+// // This function replicates the behavior of encoding Go maps,
+// // by returning an error for keys that are not of type string
+// // or int, or that does not implement encoding.TextMarshaler.
+// func encodeSyncMap(p unsafe.Pointer, dst []byte, opts encOpts) ([]byte, error) {
+// 	sm := (*sync.Map)(p)
+// 	dst = append(dst, '{')
 
-	// The sync.Map type does not have a Len() method to
-	// determine if it has no entries, to bail out early,
-	// so we just range over it to encode all available
-	// entries.
-	// If an error arises while encoding a key or a value,
-	// the error is stored and the method used by Range()
-	// returns false to stop the map's iteration.
-	var err error
-	if opts.flags.has(unsortedMap) {
-		dst, err = encodeUnsortedSyncMap(sm, dst, opts)
-	} else {
-		dst, err = encodeSortedSyncMap(sm, dst, opts)
-	}
-	if err != nil {
-		return dst, err
-	}
-	return append(dst, '}'), nil
-}
+// 	// The sync.Map type does not have a Len() method to
+// 	// determine if it has no entries, to bail out early,
+// 	// so we just range over it to encode all available
+// 	// entries.
+// 	// If an error arises while encoding a key or a value,
+// 	// the error is stored and the method used by Range()
+// 	// returns false to stop the map's iteration.
+// 	var err error
+// 	if opts.flags.has(unsortedMap) {
+// 		dst, err = encodeUnsortedSyncMap(sm, dst, opts)
+// 	} else {
+// 		dst, err = encodeSortedSyncMap(sm, dst, opts)
+// 	}
+// 	if err != nil {
+// 		return dst, err
+// 	}
+// 	return append(dst, '}'), nil
+// }
 
-// encodeUnsortedSyncMap is similar to encodeUnsortedMap
-// but operates on a sync.Map type instead of a Go map.
-func encodeUnsortedSyncMap(sm *sync.Map, dst []byte, opts encOpts) ([]byte, error) {
-	var (
-		n   int
-		err error
-	)
-	sm.Range(func(key, value interface{}) bool {
-		if n != 0 {
-			dst = append(dst, ',')
-		}
-		// Encode the key.
-		if dst, err = appendSyncMapKey(dst, key, opts); err != nil {
-			return false
-		}
-		dst = append(dst, ':')
+// // encodeUnsortedSyncMap is similar to encodeUnsortedMap
+// // but operates on a sync.Map type instead of a Go map.
+// func encodeUnsortedSyncMap(sm *sync.Map, dst []byte, opts encOpts) ([]byte, error) {
+// 	var (
+// 		n   int
+// 		err error
+// 	)
+// 	sm.Range(func(key, value interface{}) bool {
+// 		if n != 0 {
+// 			dst = append(dst, ',')
+// 		}
+// 		// Encode the key.
+// 		if dst, err = appendSyncMapKey(dst, key, opts); err != nil {
+// 			return false
+// 		}
+// 		dst = append(dst, ':')
 
-		// Encode the value.
-		if dst, err = appendJSON(dst, value, opts); err != nil {
-			return false
-		}
-		n++
-		return true
-	})
-	return dst, err
-}
+// 		// Encode the value.
+// 		if dst, err = appendJSON(dst, value, opts); err != nil {
+// 			return false
+// 		}
+// 		n++
+// 		return true
+// 	})
+// 	return dst, err
+// }
 
-// encodeSortedSyncMap is similar to encodeSortedMap
-// but operates on a sync.Map type instead of a Go map.
-func encodeSortedSyncMap(sm *sync.Map, dst []byte, opts encOpts) ([]byte, error) {
-	var (
-		off int
-		err error
-		buf = cachedBuffer()
-		mel *mapElems
-	)
-	if v := mapElemsPool.Get(); v != nil {
-		mel = v.(*mapElems)
-	} else {
-		mel = &mapElems{s: make([]kv, 0)}
-	}
-	sm.Range(func(key, value interface{}) bool {
-		kv := kv{}
+// // encodeSortedSyncMap is similar to encodeSortedMap
+// // but operates on a sync.Map type instead of a Go map.
+// func encodeSortedSyncMap(sm *sync.Map, dst []byte, opts encOpts) ([]byte, error) {
+// 	var (
+// 		off int
+// 		err error
+// 		buf = cachedBuffer()
+// 		mel *mapElems
+// 	)
+// 	if v := mapElemsPool.Get(); v != nil {
+// 		mel = v.(*mapElems)
+// 	} else {
+// 		mel = &mapElems{s: make([]kv, 0)}
+// 	}
+// 	sm.Range(func(key, value interface{}) bool {
+// 		kv := kv{}
 
-		// Encode the key and store the buffer
-		// portion to use during the later sort.
-		if buf.B, err = appendSyncMapKey(buf.B, key, opts); err != nil {
-			return false
-		}
-		// Omit quotes of keys.
-		kv.key = buf.B[off+1 : len(buf.B)-1]
+// 		// Encode the key and store the buffer
+// 		// portion to use during the later sort.
+// 		if buf.B, err = appendSyncMapKey(buf.B, key, opts); err != nil {
+// 			return false
+// 		}
+// 		// Omit quotes of keys.
+// 		kv.key = buf.B[off+1 : len(buf.B)-1]
 
-		// Add separator after key.
-		buf.B = append(buf.B, ':')
+// 		// Add separator after key.
+// 		buf.B = append(buf.B, ':')
 
-		// Encode the value and store the buffer
-		// portion corresponding to the semicolon
-		// delimited key/value pair.
-		if buf.B, err = appendJSON(buf.B, value, opts); err != nil {
-			return false
-		}
-		kv.keyval = buf.B[off:len(buf.B)]
-		mel.s = append(mel.s, kv)
-		off = len(buf.B)
+// 		// Encode the value and store the buffer
+// 		// portion corresponding to the semicolon
+// 		// delimited key/value pair.
+// 		if buf.B, err = appendJSON(buf.B, value, opts); err != nil {
+// 			return false
+// 		}
+// 		kv.keyval = buf.B[off:len(buf.B)]
+// 		mel.s = append(mel.s, kv)
+// 		off = len(buf.B)
 
-		return true
-	})
-	if err == nil {
-		// Sort map entries by key in
-		// lexicographical order.
-		sort.Sort(mel)
+// 		return true
+// 	})
+// 	if err == nil {
+// 		// Sort map entries by key in
+// 		// lexicographical order.
+// 		sort.Sort(mel)
 
-		// Append sorted comma-delimited k/v
-		// pairs to the given buffer.
-		for i, kv := range mel.s {
-			if i != 0 {
-				dst = append(dst, ',')
-			}
-			dst = append(dst, kv.keyval...)
-		}
-	}
-	releaseMapElems(mel)
-	bufferPool.Put(buf)
+// 		// Append sorted comma-delimited k/v
+// 		// pairs to the given buffer.
+// 		for i, kv := range mel.s {
+// 			if i != 0 {
+// 				dst = append(dst, ',')
+// 			}
+// 			dst = append(dst, kv.keyval...)
+// 		}
+// 	}
+// 	releaseMapElems(mel)
+// 	bufferPool.Put(buf)
 
-	return dst, err
-}
+// 	return dst, err
+// }
 
-func appendSyncMapKey(dst []byte, key interface{}, opts encOpts) ([]byte, error) {
-	if key == nil {
-		return dst, errors.New("unsupported nil key in sync.Map")
-	}
-	kt := reflect.TypeOf(key)
-	var (
-		isStr = isString(kt)
-		isInt = isInteger(kt)
-		isTxt = kt.Implements(textMarshalerType)
-	)
-	if !isStr && !isInt && !isTxt {
-		return dst, fmt.Errorf("unsupported key of type %s in sync.Map", kt)
-	}
-	var err error
+// func appendSyncMapKey(dst []byte, key interface{}, opts encOpts) ([]byte, error) {
+// 	if key == nil {
+// 		return dst, errors.New("unsupported nil key in sync.Map")
+// 	}
+// 	kt := reflect.TypeOf(key)
+// 	var (
+// 		isStr = isString(kt)
+// 		isInt = isInteger(kt)
+// 		isTxt = kt.Implements(textMarshalerType)
+// 	)
+// 	if !isStr && !isInt && !isTxt {
+// 		return dst, fmt.Errorf("unsupported key of type %s in sync.Map", kt)
+// 	}
+// 	var err error
 
-	// Quotes the key if the type is not
-	// encoded with quotes by default.
-	quoted := !isStr && !isTxt
+// 	// Quotes the key if the type is not
+// 	// encoded with quotes by default.
+// 	quoted := !isStr && !isTxt
 
-	// Ensure map key precedence for keys of type
-	// string by using the encodeString function
-	// directly instead of the generic appendJSON.
-	if isStr {
-		dst, err = encodeString(unpackEface(key).word, dst, opts)
-		runtime.KeepAlive(key)
-	} else {
-		if quoted {
-			dst = append(dst, '"')
-		}
-		dst, err = appendJSON(dst, key, opts)
-	}
-	if err != nil {
-		return dst, err
-	}
-	if quoted {
-		dst = append(dst, '"')
-	}
-	return dst, nil
-}
+// 	// Ensure map key precedence for keys of type
+// 	// string by using the encodeString function
+// 	// directly instead of the generic appendJSON.
+// 	if isStr {
+// 		dst, err = encodeString(unpackEface(key).word, dst, opts)
+// 		runtime.KeepAlive(key)
+// 	} else {
+// 		if quoted {
+// 			dst = append(dst, '"')
+// 		}
+// 		dst, err = appendJSON(dst, key, opts)
+// 	}
+// 	if err != nil {
+// 		return dst, err
+// 	}
+// 	if quoted {
+// 		dst = append(dst, '"')
+// 	}
+// 	return dst, nil
+// }
 
-func encodeMarshaler(
-	p unsafe.Pointer, dst []byte, opts encOpts, t reflect.Type, canAddr bool, fn marshalerEncodeFunc,
-) ([]byte, error) {
-	// The content of this function and packEface
-	// is similar to the following code using the
-	// reflect package.
-	//
-	// v := reflect.NewAt(t, p)
-	// if !canAddr {
-	// 	v = v.Elem()
-	// 	k := v.Kind()
-	// 	if (k == reflect.Ptr || k == reflect.Interface) && v.IsNil() {
-	// 		return append(dst, "null"...), nil
-	// 	}
-	// } else if v.IsNil() {
-	// 	return append(dst, "null"...), nil
-	// }
-	// return fn(v.Interface(), dst, opts, t)
-	//
-	if !canAddr {
-		if t.Kind() == reflect.Ptr || t.Kind() == reflect.Interface {
-			if *(*unsafe.Pointer)(p) == nil {
-				return append(dst, "null"...), nil
-			}
-		}
-	} else {
-		if p == nil {
-			return append(dst, "null"...), nil
-		}
-		t = reflect.PtrTo(t)
-	}
-	var i interface{}
+// func encodeMarshaler(
+// 	p unsafe.Pointer, dst []byte, opts encOpts, t reflect.Type, canAddr bool, fn marshalerEncodeFunc,
+// ) ([]byte, error) {
+// 	// The content of this function and packEface
+// 	// is similar to the following code using the
+// 	// reflect package.
+// 	//
+// 	// v := reflect.NewAt(t, p)
+// 	// if !canAddr {
+// 	// 	v = v.Elem()
+// 	// 	k := v.Kind()
+// 	// 	if (k == reflect.Ptr || k == reflect.Interface) && v.IsNil() {
+// 	// 		return append(dst, "null"...), nil
+// 	// 	}
+// 	// } else if v.IsNil() {
+// 	// 	return append(dst, "null"...), nil
+// 	// }
+// 	// return fn(v.Interface(), dst, opts, t)
+// 	//
+// 	if !canAddr {
+// 		if t.Kind() == reflect.Ptr || t.Kind() == reflect.Interface {
+// 			if *(*unsafe.Pointer)(p) == nil {
+// 				return append(dst, "null"...), nil
+// 			}
+// 		}
+// 	} else {
+// 		if p == nil {
+// 			return append(dst, "null"...), nil
+// 		}
+// 		t = reflect.PtrTo(t)
+// 	}
+// 	var i interface{}
 
-	if t.Kind() == reflect.Interface {
-		// Special case: return the element inside the
-		// interface. The empty interface has one layout,
-		// all interfaces with methods have another one.
-		if t.NumMethod() == 0 {
-			i = *(*interface{})(p)
-		} else {
-			i = *(*interface{ M() })(p)
-		}
-	} else {
-		i = packEface(p, t, t.Kind() == reflect.Ptr && !canAddr)
-	}
-	return fn(i, dst, opts, t)
-}
+// 	if t.Kind() == reflect.Interface {
+// 		// Special case: return the element inside the
+// 		// interface. The empty interface has one layout,
+// 		// all interfaces with methods have another one.
+// 		if t.NumMethod() == 0 {
+// 			i = *(*interface{})(p)
+// 		} else {
+// 			i = *(*interface{ M() })(p)
+// 		}
+// 	} else {
+// 		i = packEface(p, t, t.Kind() == reflect.Ptr && !canAddr)
+// 	}
+// 	return fn(i, dst, opts, t)
+// }
 
-func encodeAppendMarshalerCtx(
-	i interface{}, dst []byte, opts encOpts, t reflect.Type,
-) ([]byte, error) {
-	dst2, err := i.(AppendMarshalerCtx).AppendJSONContext(opts.ctx, dst)
-	if err != nil {
-		return dst, &MarshalerError{t, err, marshalerAppendJSONCtx}
-	}
-	return dst2, nil
-}
+// func encodeAppendMarshalerCtx(
+// 	i interface{}, dst []byte, opts encOpts, t reflect.Type,
+// ) ([]byte, error) {
+// 	dst2, err := i.(AppendMarshalerCtx).AppendJSONContext(opts.ctx, dst)
+// 	if err != nil {
+// 		return dst, &MarshalerError{t, err, marshalerAppendJSONCtx}
+// 	}
+// 	return dst2, nil
+// }
 
-func encodeAppendMarshaler(
-	i interface{}, dst []byte, _ encOpts, t reflect.Type,
-) ([]byte, error) {
-	dst2, err := i.(AppendMarshaler).AppendJSON(dst)
-	if err != nil {
-		return dst, &MarshalerError{t, err, marshalerAppendJSON}
-	}
-	return dst2, nil
-}
+// func encodeAppendMarshaler(
+// 	i interface{}, dst []byte, _ encOpts, t reflect.Type,
+// ) ([]byte, error) {
+// 	dst2, err := i.(AppendMarshaler).AppendJSON(dst)
+// 	if err != nil {
+// 		return dst, &MarshalerError{t, err, marshalerAppendJSON}
+// 	}
+// 	return dst2, nil
+// }
 
-func encodeJSONMarshaler(i interface{}, dst []byte, opts encOpts, t reflect.Type) ([]byte, error) {
-	b, err := i.(json.Marshaler).MarshalJSON()
-	if err != nil {
-		return dst, &MarshalerError{t, err, marshalerJSON}
-	}
-	if opts.flags.has(noCompact) {
-		return append(dst, b...), nil
-	}
-	// This is redundant with the parsing done
-	// by appendCompactJSON, but for the time
-	// being, we can't use the scanner of the
-	// standard library.
-	if !json.Valid(b) {
-		return dst, &MarshalerError{t, &SyntaxError{
-			msg: "json: invalid value",
-		}, marshalerJSON}
-	}
-	return appendCompactJSON(dst, b, !opts.flags.has(noHTMLEscaping))
-}
+// func encodeJSONMarshaler(i interface{}, dst []byte, opts encOpts, t reflect.Type) ([]byte, error) {
+// 	b, err := i.(json.Marshaler).MarshalJSON()
+// 	if err != nil {
+// 		return dst, &MarshalerError{t, err, marshalerJSON}
+// 	}
+// 	if opts.flags.has(noCompact) {
+// 		return append(dst, b...), nil
+// 	}
+// 	// This is redundant with the parsing done
+// 	// by appendCompactJSON, but for the time
+// 	// being, we can't use the scanner of the
+// 	// standard library.
+// 	if !json.Valid(b) {
+// 		return dst, &MarshalerError{t, &SyntaxError{
+// 			msg: "json: invalid value",
+// 		}, marshalerJSON}
+// 	}
+// 	return appendCompactJSON(dst, b, !opts.flags.has(noHTMLEscaping))
+// }
 
-func encodeTextMarshaler(i interface{}, dst []byte, _ encOpts, t reflect.Type) ([]byte, error) {
-	b, err := i.(encoding.TextMarshaler).MarshalText()
-	if err != nil {
-		return dst, &MarshalerError{t, err, marshalerText}
-	}
-	dst = append(dst, '"')
-	dst = append(dst, b...)
-	dst = append(dst, '"')
+// func encodeTextMarshaler(i interface{}, dst []byte, _ encOpts, t reflect.Type) ([]byte, error) {
+// 	b, err := i.(encoding.TextMarshaler).MarshalText()
+// 	if err != nil {
+// 		return dst, &MarshalerError{t, err, marshalerText}
+// 	}
+// 	dst = append(dst, '"')
+// 	dst = append(dst, b...)
+// 	dst = append(dst, '"')
 
-	return dst, nil
-}
+// 	return dst, nil
+// }
 
 // appendCompactJSON appends to dst the JSON-encoded src
 // with insignificant space characters elided. If escHTML

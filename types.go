@@ -2,7 +2,6 @@ package jettison
 
 import (
 	"encoding"
-	"encoding/json"
 	"reflect"
 	"sync"
 	"time"
@@ -10,12 +9,12 @@ import (
 )
 
 var (
-	timeTimeType           = reflect.TypeOf(time.Time{})
-	timeDurationType       = reflect.TypeOf(time.Duration(0))
-	syncMapType            = reflect.TypeOf((*sync.Map)(nil)).Elem()
-	jsonNumberType         = reflect.TypeOf(json.Number(""))
-	jsonRawMessageType     = reflect.TypeOf(json.RawMessage(nil))
-	jsonMarshalerType      = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+	timeTimeType     = reflect.TypeOf(time.Time{})
+	timeDurationType = reflect.TypeOf(time.Duration(0))
+	syncMapType      = reflect.TypeOf((*sync.Map)(nil)).Elem()
+	// jsonNumberType         = reflect.TypeOf(json.Number(""))
+	// jsonRawMessageType     = reflect.TypeOf(json.RawMessage(nil))
+	// jsonMarshalerType      = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
 	textMarshalerType      = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
 	appendMarshalerType    = reflect.TypeOf((*AppendMarshaler)(nil)).Elem()
 	appendMarshalerCtxType = reflect.TypeOf((*AppendMarshalerCtx)(nil)).Elem()
@@ -160,10 +159,10 @@ func emptyFuncOf(t reflect.Type) emptyFunc {
 		return func(p unsafe.Pointer) bool {
 			return *(*float64)(p) == 0
 		}
-	case reflect.Map:
-		return func(p unsafe.Pointer) bool {
-			return maplen(*(*unsafe.Pointer)(p)) == 0
-		}
+	// case reflect.Map:
+	// 	return func(p unsafe.Pointer) bool {
+	// 		return maplen(*(*unsafe.Pointer)(p)) == 0
+	// 	}
 	case reflect.Ptr:
 		return func(p unsafe.Pointer) bool {
 			return *(*unsafe.Pointer)(p) == nil
