@@ -178,7 +178,8 @@ func appendRFC3339Time(t time.Time, dst []byte, nano bool) []byte {
 	buf[0], buf[5], buf[8], buf[11], buf[14], buf[17] = '"', '-', '-', 'T', ':', ':'
 
 	// Year.
-	_, offset := t.Zone()
+	// _, offset := t.Zone()
+	offset := 0
 	sec := t.Unix() + int64(offset) + epoch
 	y, m, d := rdnToYmd(uint32(sec / 86400))
 	for i := 4; i >= 1; i-- {
